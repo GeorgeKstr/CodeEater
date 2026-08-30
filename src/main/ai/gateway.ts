@@ -152,7 +152,8 @@ export class ModelGateway {
     try {
       const res = await fetch(v0Url, {
         method: 'GET',
-        headers: authHeaders(this.config)
+        headers: authHeaders(this.config),
+        signal: AbortSignal.timeout(10_000)
       })
       if (res.ok) {
         const body = (await res.json()) as {
@@ -181,12 +182,10 @@ export class ModelGateway {
       /* v0 API unavailable — fall back below */
     }
     const url = `${base}/models`
-    const controller = new AbortController()
-    this.controllers.set('discover', controller)
     try {
       const res = await fetch(url, {
         method: 'GET',
-        signal: controller.signal,
+        signal: AbortSignal.timeout(10_000),
         headers: authHeaders(this.config)
       })
       if (!res.ok) throw new AIError(`endpoint returned ${res.status}`, 'offline')
@@ -196,8 +195,6 @@ export class ModelGateway {
     } catch (e) {
       if (e instanceof AIError) throw e
       throw new AIError(`cannot reach ${url}: ${(e as Error).message}`, 'offline')
-    } finally {
-      this.controllers.delete('discover')
     }
   }
 
@@ -253,7 +250,8 @@ export class ModelGateway {
       await fetch(`${this.getBaseUrl()}/embeddings`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders(this.config) },
-        body: JSON.stringify({ input: 'capability probe', model: this.activeModel })
+        body: JSON.stringify({ input: 'capability probe', model: this.activeModel }),
+        signal: AbortSignal.timeout(10_000)
       })
       this.capabilities.embeddings = true
     } catch {
@@ -304,13 +302,16 @@ export class ModelGateway {
     const baseMessages = messages
     const buildAttempts = (): (() => Promise<GenerateResult>)[] => {
       const attempts: (() => Promise<GenerateResult>)[] = []
-      for (let variant = 0; variant < thinkingVariants.length; variant++) {
-        attempts.push(() =>
-          this.postChat(baseMessages, { ...body, ...thinkingVariants[variant] }, requestId, opts)
-        )
-      }
+      // primary: disable chain-of-thought (works on LM Studio thinking models)
+      attempts.push(() =>
+        this.postChat(baseMessages, { ...body, ...thinkingVariants[0] }, requestId, opts)
+      )
       // escalation: larger budget retry when empty-content happens
       attempts.push(() => this.generateEscalated(baseMessages, requestId, opts, maxTokens))
+      // fallback: some backends reject the extra params — retry with a plain body
+      attempts.push(() =>
+        this.postChat(baseMessages, { ...body, ...thinkingVariants[2] }, requestId, opts)
+      )
       return attempts
     }
 
@@ -329,6 +330,7 @@ export class ModelGateway {
           lastErr = e instanceof Error ? e : new Error(String(e))
           if (e instanceof AIError && e.kind === 'cancelled') throw e
           if (e instanceof AIError && e.kind === 'offline') throw e
+          if (e instanceof AIError && e.kind === 'timeout') throw e // hung backend: fail fast
           // a model that fails to LOAD on the server is not usable — rotate
           if (e instanceof AIError && this.isModelLoadFailure(e.message)) {
             const next = this.rotateModelOnFailure()
@@ -361,7 +363,7 @@ export class ModelGateway {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders(this.config) },
         body: JSON.stringify(body),
-        signal: controller.signal
+        signal: signalWithTimeout(controller.signal, 240_000)
       })
       if (!res.ok) {
         let errText = ''
@@ -374,6 +376,7 @@ export class ModelGateway {
       }
       return await this.consumeStream(res, opts)
     } catch (e) {
+      if (isTimeout(e)) throw new AIError('request timed out after 240s', 'timeout')
       if (isAbort(e)) throw new AIError('request cancelled', 'cancelled')
       if (e instanceof AIError) throw e
       throw new AIError(`request failed: ${(e as Error).message}`, 'offline')
@@ -482,4 +485,25 @@ function authHeaders(config: AIConfig): Record<string, string> {
 
 function isAbort(e: unknown): boolean {
   return e instanceof Error && (e.name === 'AbortError' || e.name === 'DOMException')
+}
+
+function isTimeout(e: unknown): boolean {
+  return e instanceof Error && e.name === 'TimeoutError'
+}
+
+/** Combine a cancellation signal with a hard timeout. */
+function signalWithTimeout(signal: AbortSignal, ms: number): AbortSignal {
+  try {
+    return AbortSignal.any([signal, AbortSignal.timeout(ms)])
+  } catch {
+    // older environments: emulate the timeout
+    const ac = new AbortController()
+    const timer = setTimeout(() => ac.abort(new DOMException('timeout', 'TimeoutError')), ms)
+    const onAbort = (): void => {
+      clearTimeout(timer)
+      ac.abort()
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    return ac.signal
+  }
 }

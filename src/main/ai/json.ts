@@ -94,38 +94,58 @@ export function validate(schema: JSONSchema, value: unknown, path = '$'): Valida
   }
 }
 
-/** Extract the first balanced JSON object/array from model text (tolerates fenced output). */
+/**
+ * Extract a balanced JSON value from model text (tolerates fenced output and
+ * leading/trailing prose). Prefers the first balanced OBJECT: practically all
+ * structured operations expect an object at the root, and models sometimes
+ * emit a stray array before the real answer, which would otherwise win.
+ */
 export function extractJson(raw: string): unknown {
   let text = raw.replace(/^```(?:json)?/m, '').replace(/```$/m, '').trim()
-  // trim leading prose until first { or [
-  const start = text.search(/[\[{]/)
-  if (start === -1) throw new Error('no JSON structure found in model output')
-  text = text.slice(start)
-  // find balanced close
-  const open = text[0]
-  const close = open === '{' ? '}' : ']'
-  let depth = 0
-  let inString = false
-  let escaped = false
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i]
-    if (inString) {
-      if (escaped) escaped = false
-      else if (ch === '\\') escaped = true
-      else if (ch === '"') inString = false
-      continue
-    }
-    if (ch === '"') inString = true
-    else if (ch === open) depth++
-    else if (ch === close) {
-      depth--
-      if (depth === 0) {
-        const slice = text.slice(0, i + 1)
-        return JSON.parse(slice)
+  const tryParseBalanced = (openAt: number, open: '{' | '['): { ok: boolean; value?: unknown } => {
+    let depth = 0
+    let inString = false
+    let escaped = false
+    for (let i = openAt; i < text.length; i++) {
+      const ch = text[i]
+      if (inString) {
+        if (escaped) escaped = false
+        else if (ch === '\\') escaped = true
+        else if (ch === '"') inString = false
+        continue
+      }
+      if (ch === '"') inString = true
+      else if (ch === open) depth++
+      else if ((open === '{' && ch === '}') || (open === '[' && ch === ']')) {
+        depth--
+        if (depth === 0) {
+          const slice = text.slice(openAt, i + 1)
+          try {
+            return { ok: true, value: JSON.parse(slice) }
+          } catch {
+            return { ok: false }
+          }
+        }
       }
     }
+    return { ok: false }
   }
-  throw new Error('unbalanced JSON in model output')
+
+  // 1) try balanced objects from every '{' (a '}' closes after nested '{'s)
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') {
+      const r = tryParseBalanced(i, '{')
+      if (r.ok) return r.value
+    }
+  }
+  // 2) fall back to balanced arrays
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '[') {
+      const r = tryParseBalanced(i, '[')
+      if (r.ok) return r.value
+    }
+  }
+  throw new Error('no valid JSON object or array found in model output')
 }
 
 /** Full pipeline: extract → normalize → validate. Throws StructuredOutputError. */

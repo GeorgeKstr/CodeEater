@@ -16,6 +16,55 @@ export const PROMPT_VERSION = 1
 
 const MAX_TOOL_ITERS = 15
 
+/**
+ * Lenient normalization for edit proposals: tolerate "changes" instead of
+ * "edits", arrays of edits, wrapper objects, and per-edit key variants
+ * (type/op/action → operation, file/filePath → path, code/newContent →
+ * replacement). Empty/missing edits default to [] — the op then reports a
+ * friendly "no edits proposed" error.
+ */
+export function editsNormalize(v: unknown): unknown {
+  const normEdit = (e: unknown): unknown => {
+    if (!e || typeof e !== 'object' || Array.isArray(e)) return {}
+    const o = e as Record<string, unknown>
+    let operation =
+      typeof o.operation === 'string' ? o.operation : typeof o.type === 'string' ? o.type : typeof o.op === 'string' ? o.op : typeof o.action === 'string' ? o.action : ''
+    if (operation === 'modify') operation = 'replace'
+    if (operation === 'add' || operation === 'new') operation = 'create'
+    if (operation === 'remove') operation = 'delete'
+    // infer replace/insert when the operation key is missing entirely
+    if (!operation && typeof o.replacement === 'string') {
+      operation = typeof o.startLine === 'number' ? 'replace' : 'insert'
+    }
+    const path = (o.path ?? o.file ?? o.filePath ?? o.fileName ?? '') as string
+    const replacement =
+      (typeof o.replacement === 'string' ? o.replacement : '') ||
+      (operation !== 'create' && typeof o.content === 'string' ? o.content : '') ||
+      (typeof o.newContent === 'string' ? o.newContent : '') ||
+      (typeof o.code === 'string' ? o.code : '')
+    const content = typeof o.content === 'string' ? o.content : typeof o.replacement === 'string' && operation === 'create' ? o.replacement : ''
+    const out: Record<string, unknown> = { operation, path }
+    if (typeof o.startLine === 'number') out.startLine = o.startLine
+    if (typeof o.endLine === 'number') out.endLine = o.endLine
+    if (operation !== 'create' && replacement) out.replacement = replacement
+    if (operation === 'create' && content) out.content = content
+    return out
+  }
+  const pick = (o: Record<string, unknown>): unknown => {
+    const raw = Array.isArray(o.edits) ? o.edits : Array.isArray(o.changes) ? o.changes : []
+    return {
+      summary: typeof o.summary === 'string' ? o.summary : '',
+      edits: raw.map(normEdit)
+    }
+  }
+  if (v && typeof v === 'object' && !Array.isArray(v)) return pick(v as Record<string, unknown>)
+  if (Array.isArray(v)) {
+    const inner = v.find((x) => x && typeof x === 'object' && !Array.isArray(x))
+    if (inner) return pick(inner as Record<string, unknown>)
+  }
+  return v
+}
+
 // ---------------------------------------------------------------------------
 // Selection edit
 // ---------------------------------------------------------------------------
@@ -79,11 +128,12 @@ export async function selectionEditOp(
       userPrompt(b.sections.map((s) => `### ${s.title}\n${s.text}`).join('\n\n'))
     ],
     schemas.edits,
-    { jsonSchema: schemas.edits }
+    { jsonSchema: schemas.edits, normalize: editsNormalize }
   )
 
-  const validEdits = validateEditsTarget(result.edits, filePath, budget)
+  const validEdits = validateEditsTarget(result.edits ?? [], filePath, budget)
   const scopeEdits = restrictToSelection(validEdits, selStart, selEnd, lineCount)
+  if (scopeEdits.length === 0) throw new Error('The AI did not propose any edits for the selected code — try rephrasing your request.')
   return createChangeRequest(
     {
       prompt: input.prompt,
@@ -186,11 +236,12 @@ export async function fileEditOp(
       userPrompt(b.sections.map((s) => `### ${s.title}\n${s.text}`).join('\n\n') + `\n\nREQUEST\n${input.prompt}`)
     ],
     schemas.edits,
-    { jsonSchema: schemas.edits }
+    { jsonSchema: schemas.edits, normalize: editsNormalize }
   )
-  const edits = validateEditsTarget(result.edits, filePath, budget).filter(
+  const edits = validateEditsTarget(result.edits ?? [], filePath, budget).filter(
     (e) => (e.startLine ?? 0) <= lineCount && (e.endLine ?? 0) <= lineCount
   )
+  if (edits.length === 0) throw new Error('The AI did not propose any edits for this file — try rephrasing your request.')
   return createChangeRequest(
     { prompt: input.prompt, scope: 'file', summary: result.summary || 'File edit', edits },
     getProjectRoot()!
@@ -275,7 +326,17 @@ export async function codebasePlanOp(
       endLine?: number
       summary?: string
       files?: { path: string; reason: string }[]
-    }>(runtime, messages, planSchema, { jsonSchema: undefined, enableThinking: false })
+    }>(runtime, messages, planSchema, {
+      jsonSchema: undefined,
+      enableThinking: false,
+      normalize: (v) => {
+        // models occasionally wrap the single action in a JSON array
+        if (Array.isArray(v) && v.length === 1 && v[0] && typeof v[0] === 'object' && !Array.isArray(v[0])) {
+          return v[0]
+        }
+        return v
+      }
+    })
 
     if (!step.action) throw new Error('model returned no action')
 
@@ -413,9 +474,10 @@ export async function codebaseEditOp(
       userPrompt(b.sections.map((s) => `### ${s.title}\n${s.text}`).join('\n\n'))
     ],
     schemas.edits,
-    { jsonSchema: schemas.edits }
+    { jsonSchema: schemas.edits, normalize: editsNormalize }
   )
-  const edits = validateCodebaseEdits(result.edits, planFiles)
+  const edits = validateCodebaseEdits(result.edits ?? [], planFiles)
+  if (edits.length === 0) throw new Error('The AI did not propose any edits for the planned change — try rephrasing or accepting smaller changes.')
   return createChangeRequest(
     { prompt: input.prompt, scope: 'codebase', summary: result.summary || 'Codebase edit', edits },
     root
