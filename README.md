@@ -20,7 +20,7 @@ The editor uses whichever model the endpoint has loaded. It never bundles a mode
 │ Search...    [AI]│                                 │ PROJECT │ FILE         │
 │ PROJECT TREE     │          CODE EDITOR            │       OVERVIEW         │
 ├──────────────────┴─────────────────────────────────┴────────────────────────┤
-│ TERMINAL                                                          Ctrl+`      │
+│  bash | bash 2 | +                                        TERMINAL   Ctrl+`   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -34,10 +34,49 @@ npm start            # run the built app
 npm run typecheck
 ```
 
-- Open a project: **Open Project…** button (or pick a recent project).
+## Install from GitHub (one script, any platform)
+
+The repo is private, so the installer uses your existing GitHub access
+(SSH keys or `gh auth`).
+
+**Linux / macOS — `scripts/install.sh`:**
+
+```bash
+# recommended: clone, then install (uses your SSH key)
+git clone git@github.com:GeorgeKstr/CodeEater.git && cd CodeEater
+./scripts/install.sh
+
+# or install straight from GitHub into ~/.local/share/codeeater
+./scripts/install.sh --github --branch master
+
+# once the repo is public, a single pipe works on any Unix:
+curl -fsSL https://raw.githubusercontent.com/GeorgeKstr/CodeEater/master/scripts/install.sh | bash
+```
+
+**Windows — `scripts/install.ps1`:**
+
+```powershell
+git clone git@github.com:GeorgeKstr/CodeEater.git
+cd CodeEater
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+
+# public one-liner:
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/GeorgeKstr/CodeEater/master/scripts/install.ps1 | iex"
+```
+
+The installer checks prerequisites (node ≥ 18, npm, python3, make/C-compiler, git),
+installs what it can (nvm / apt / dnf / pacman / brew), pulls the repo, runs
+`npm install` + `npm run build` (node-pty and better-sqlite3 are rebuilt for
+Electron), and sets up the `coe` command + desktop shortcut/icon.
+
+Use `scripts/install.sh --uninstall` (or `scripts/install.ps1 -Uninstall`) to remove it.
+
+- Open a project: **Open Project…** button (or pick a recent project), or the native **File ▸ Open Project…** menu.
 - `Ctrl+P` — fuzzy file finder (deterministic, no AI)
-- `` Ctrl+` `` — toggle terminal (background session keeps running while hidden)
+- `` Ctrl+` `` — toggle terminal (background sessions keep running while hidden)
+- `Ctrl+Shift+` `` — new terminal tab
 - `Ctrl+S` — save
+- **File ▸ Preferences…** (or `Ctrl+,`) — settings panel with **Hotkeys** (rebind everything above), **Terminal** (font size, family, scrollback) and **AI** sections.
 - Left pane: deterministic codebase search (ripgrep). Press **AI** to search for *where a concept is likely implemented*.
 - Right pane: **PROJECT** (summary, running guide, features, recent work) and **FILE** (summary, semantic sections, related files).
 - Bottom of the editor: the AI edit prompt with **Selection / File / Codebase** scopes.
