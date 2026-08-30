@@ -12,7 +12,12 @@ const api: IpcApi = {
   app: {
     getVersion: () => ipcRenderer.invoke(IPC.appGetVersion),
     openProjectDialog: () => ipcRenderer.invoke(IPC.appOpenProjectDialog),
-    selectFolder: () => ipcRenderer.invoke(IPC.appSelectFolder)
+    selectFolder: () => ipcRenderer.invoke(IPC.appSelectFolder),
+    onOpenProject: (cb) => on<void>(IPC.appOpenProject, cb),
+    onCloseProject: (cb) => on<void>(IPC.appCloseProject, cb),
+    onOpenPreferences: (cb) => on<void>(IPC.appOpenPreferences, cb),
+    onOpenCommandPalette: (cb) => on<void>(IPC.appOpenCommandPalette, cb),
+    onToggleTerminal: (cb) => on<void>(IPC.appToggleTerminal, cb)
   },
   project: {
     open: (root) => ipcRenderer.invoke(IPC.projectOpen, root),
@@ -49,11 +54,16 @@ const api: IpcApi = {
   },
   terminal: {
     start: () => ipcRenderer.invoke(IPC.terminalStart),
-    write: (data) => ipcRenderer.invoke(IPC.terminalWrite, data),
-    resize: (cols, rows) => ipcRenderer.invoke(IPC.terminalResize, cols, rows),
+    list: () => ipcRenderer.invoke(IPC.terminalList),
+    create: () => ipcRenderer.invoke(IPC.terminalCreate),
+    close: (id) => ipcRenderer.invoke(IPC.terminalClose, id),
+    activate: (id) => ipcRenderer.invoke(IPC.terminalActivate, id),
+    write: (id, data) => ipcRenderer.invoke(IPC.terminalWrite, id, data),
+    resize: (id, cols, rows) => ipcRenderer.invoke(IPC.terminalResize, id, cols, rows),
     kill: () => ipcRenderer.invoke(IPC.terminalKill),
-    onData: (cb) => on<string>(IPC.terminalData, cb),
-    onExit: (cb) => on<number>(IPC.terminalExit, cb),
+    onData: (cb) => on<{ id: string; data: string }>(IPC.terminalData, (p) => cb(p.id, p.data)),
+    onExit: (cb) => on<{ id: string; code: number | null }>(IPC.terminalExit, (p) => cb(p.id, p.code)),
+    onListChanged: (cb) => on<void>(IPC.terminalChanged, cb),
     isRunning: () => ipcRenderer.invoke(IPC.terminalRunning)
   },
   ai: {

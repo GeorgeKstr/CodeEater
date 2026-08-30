@@ -1,6 +1,7 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from 'electron'
 import path from 'path'
 import fs from 'fs'
+import { IPC } from '../shared/ipc'
 import { registerIpc, setMainWindow, shutdown, initProject } from './ipc/register'
 import { connectAI } from './ai/service'
 import { closeProject } from './project'
@@ -35,6 +36,70 @@ async function cliProjectArg(): Promise<string | null> {
     }
   }
   return null
+}
+
+/**
+ * Application menu. Rebindable hotkeys (find file / terminal / save / preferences)
+ * are NOT registered as accelerators — the renderer owns those keys so the user
+ * can rebind them in Preferences. registerAccelerator:false only keeps a visual hint.
+ */
+function buildApplicationMenu(): void {
+  const isMac = process.platform === 'darwin'
+  const sendMenuEvent = (channel: string): void => {
+    mainWindow?.webContents.send(channel)
+  }
+  const template: MenuItemConstructorOptions[] = [
+    ...(isMac
+      ? [{ role: 'appMenu' as const }]
+      : []),
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'Open Project…',
+          accelerator: 'CmdOrCtrl+O',
+          click: () => sendMenuEvent(IPC.appOpenProject)
+        },
+        {
+          label: 'Close Project',
+          accelerator: 'CmdOrCtrl+Shift+W',
+          click: () => sendMenuEvent(IPC.appCloseProject)
+        },
+        { type: 'separator' },
+        {
+          label: 'Preferences…',
+          accelerator: 'CmdOrCtrl+,',
+          registerAccelerator: false,
+          click: () => sendMenuEvent(IPC.appOpenPreferences)
+        },
+        { type: 'separator' },
+        isMac ? { role: 'close' as const } : { role: 'quit' as const }
+      ]
+    },
+    { role: 'editMenu' },
+    {
+      label: 'View',
+      submenu: [
+        {
+          label: 'Command Palette…',
+          accelerator: 'CmdOrCtrl+P',
+          registerAccelerator: false,
+          click: () => sendMenuEvent(IPC.appOpenCommandPalette)
+        },
+        {
+          label: 'Toggle Terminal',
+          accelerator: 'Ctrl+`',
+          registerAccelerator: false,
+          click: () => sendMenuEvent(IPC.appToggleTerminal)
+        },
+        { type: 'separator' },
+        { role: 'toggleDevTools' },
+        { role: 'togglefullscreen' }
+      ]
+    },
+    { role: 'windowMenu' }
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
 async function createWindow(): Promise<void> {
@@ -131,6 +196,7 @@ async function createWindow(): Promise<void> {
 
 app.whenReady().then(async () => {
   registerIpc()
+  buildApplicationMenu()
   void connectAI() // keep AI status live even before a project is opened
   await createWindow()
   setMainWindow(mainWindow!)

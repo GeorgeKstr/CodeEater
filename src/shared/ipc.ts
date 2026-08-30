@@ -3,6 +3,11 @@ export const IPC = {
   appGetVersion: 'app:getVersion',
   appOpenProjectDialog: 'app:openProjectDialog',
   appSelectFolder: 'app:selectFolder',
+  appOpenProject: 'app:openProject',
+  appCloseProject: 'app:closeProject',
+  appOpenPreferences: 'app:openPreferences',
+  appOpenCommandPalette: 'app:openCommandPalette',
+  appToggleTerminal: 'app:toggleTerminal',
 
   projectOpen: 'project:open',
   projectOpened: 'project:opened',
@@ -33,11 +38,16 @@ export const IPC = {
   indexRescan: 'index:rescan',
 
   terminalStart: 'terminal:start',
+  terminalList: 'terminal:list',
+  terminalCreate: 'terminal:create',
+  terminalClose: 'terminal:close',
+  terminalActivate: 'terminal:activate',
   terminalWrite: 'terminal:write',
   terminalResize: 'terminal:resize',
   terminalKill: 'terminal:kill',
   terminalData: 'terminal:data',
   terminalExit: 'terminal:exit',
+  terminalChanged: 'terminal:changed',
   terminalRunning: 'terminal:isRunning',
 
   aiState: 'ai:getState',

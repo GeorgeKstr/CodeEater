@@ -1,4 +1,5 @@
 import { useApp } from './AppContext'
+import { formatCombo, defaultKeybindings } from '../../shared/utils'
 
 export function EmptyState(): React.JSX.Element {
   const app = useApp()
@@ -23,8 +24,9 @@ export function EmptyState(): React.JSX.Element {
         </div>
       ) : null}
       <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>
-        <span className="kbd">Ctrl+P</span> files · <span className="kbd">Ctrl+`</span> terminal ·{' '}
-        <span className="kbd">Ctrl+S</span> save
+        <span className="kbd">{formatCombo(app.settings?.keybindings?.findFile ?? defaultKeybindings().findFile)}</span> files ·{' '}
+        <span className="kbd">{formatCombo(app.settings?.keybindings?.toggleTerminal ?? defaultKeybindings().toggleTerminal)}</span> terminal ·{' '}
+        <span className="kbd">{formatCombo(app.settings?.keybindings?.saveFile ?? defaultKeybindings().saveFile)}</span> save
       </div>
     </div>
   )

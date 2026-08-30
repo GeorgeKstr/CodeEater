@@ -28,12 +28,17 @@ import { getSymbols, getChunks, getImports, getReferences } from '../core/retrie
 import { indexProject, reindexPath, setProjectRootForIndex } from '../core/ts-indexer'
 import {
   ensureTerminal,
+  createTerminal,
+  listTerminals,
+  closeTerminal,
+  activateTerminal,
   writeToTerminal,
   resizeTerminal,
   killTerminal,
   isTerminalRunning,
   onTerminalData,
-  onTerminalExit
+  onTerminalExit,
+  onTerminalChanged
 } from '../terminal/terminal-manager'
 import {
   gateway,
@@ -193,15 +198,23 @@ export function registerIpc(): void {
   ipcMain.handle(IPC.terminalStart, async () => {
     const root = getProjectRoot()
     const res = ensureTerminal(root ?? process.cwd())
-    return { ...res, cwd: root ?? process.cwd() }
+    return { ok: res.ok, error: res.error }
   })
-  ipcMain.handle(IPC.terminalWrite, (_e, data: string) => writeToTerminal(data))
-  ipcMain.handle(IPC.terminalResize, (_e, cols: number, rows: number) => resizeTerminal(cols, rows))
+  ipcMain.handle(IPC.terminalList, async () => listTerminals())
+  ipcMain.handle(IPC.terminalCreate, async () => {
+    const root = getProjectRoot()
+    return createTerminal(root ?? process.cwd())
+  })
+  ipcMain.handle(IPC.terminalClose, async (_e, id: string) => closeTerminal(id))
+  ipcMain.handle(IPC.terminalActivate, async (_e, id: string) => activateTerminal(id))
+  ipcMain.handle(IPC.terminalWrite, (_e, id: string, data: string) => writeToTerminal(id, data))
+  ipcMain.handle(IPC.terminalResize, (_e, id: string, cols: number, rows: number) => resizeTerminal(id, cols, rows))
   ipcMain.handle(IPC.terminalKill, () => killTerminal())
   ipcMain.handle(IPC.terminalRunning, () => isTerminalRunning())
 
-  onTerminalData((_id, data) => send(IPC.terminalData, data))
-  onTerminalExit((_id, code) => send(IPC.terminalExit, code))
+  onTerminalData((id, data) => send(IPC.terminalData, { id, data }))
+  onTerminalExit((id, code) => send(IPC.terminalExit, { id, code }))
+  onTerminalChanged(() => send(IPC.terminalChanged))
 
   // -------------------------------------------------------------------- ai
   ipcMain.handle(IPC.aiState, () => gateway.getState())

@@ -1,5 +1,124 @@
 /** Shared deterministic helpers (no I/O). */
 
+import type { KeybindingMap } from './types'
+
+// ---------------------------------------------------------------------------
+// Keybindings (platform-aware, shared between main & renderer)
+// ---------------------------------------------------------------------------
+
+export function isMacPlatform(): boolean {
+  if (typeof process !== 'undefined' && process.platform) return process.platform === 'darwin'
+  if (typeof navigator !== 'undefined') return /Mac|iPhone|iPad/.test(navigator.platform ?? '')
+  return false
+}
+
+/** Default keybinding map — ⌘ on macOS, Ctrl elsewhere. */
+export function defaultKeybindings(): KeybindingMap {
+  const mac = isMacPlatform()
+  return {
+    findFile: mac ? 'meta+p' : 'ctrl+p',
+    toggleTerminal: 'ctrl+`',
+    saveFile: mac ? 'meta+s' : 'ctrl+s',
+    openPreferences: mac ? 'meta+,' : 'ctrl+,',
+    closeTab: mac ? 'meta+w' : 'ctrl+w',
+    newTerminal: mac ? 'meta+shift+`' : 'ctrl+shift+`'
+  }
+}
+
+/** e.key name used in combos (normalized lowercase, renamed specials). */
+function keyName(key: string): string {
+  if (key === ' ') return 'space'
+  const lower = key.toLowerCase()
+  if (lower === 'escape') return 'esc'
+  if (lower === 'control') return 'ctrl'
+  if (lower === 'meta') return 'meta'
+  if (lower === 'shift') return 'shift'
+  if (lower === 'alt') return 'alt'
+  if (lower === 'arrowup') return 'up'
+  if (lower === 'arrowdown') return 'down'
+  if (lower === 'arrowleft') return 'left'
+  if (lower === 'arrowright') return 'right'
+  if (lower === ' ') return 'space'
+  return lower
+}
+
+/** Minimal structural KeyboardEvent — DOM KeyboardEvent satisfies this, and it keeps main-process builds DOM-free. */
+export interface KeyComboEvent {
+  key: string
+  ctrlKey: boolean
+  metaKey: boolean
+  altKey: boolean
+  shiftKey: boolean
+}
+
+/** Build a canonical combo string from a KeyboardEvent (e.g. "ctrl+shift+p"). */
+export function comboFromEvent(e: KeyComboEvent): string {
+  const parts: string[] = []
+  if (e.ctrlKey) parts.push('ctrl')
+  if (e.metaKey) parts.push('meta')
+  if (e.altKey) parts.push('alt')
+  if (e.shiftKey) parts.push('shift')
+  parts.push(keyName(e.key))
+  return parts.join('+')
+}
+
+function keysEqual(comboKey: string, eventKey: string): boolean {
+  const a = comboKey.toLowerCase()
+  const b = keyName(eventKey)
+  if (a === 'space' && b === 'space') return true
+  if (a === 'esc' && b === 'esc') return true
+  return a === b
+}
+
+/** True when the event matches a stored combo (exact modifier set). */
+export function comboMatches(e: KeyComboEvent, combo: string): boolean {
+  const parts = combo.trim().toLowerCase().split('+').filter(Boolean)
+  if (parts.length === 0) return false
+  const keyPart = parts[parts.length - 1]
+  const mods = new Set(parts.slice(0, -1))
+  const pressed = new Set<string>()
+  if (e.ctrlKey) pressed.add('ctrl')
+  if (e.metaKey) pressed.add('meta')
+  if (e.altKey) pressed.add('alt')
+  if (e.shiftKey) pressed.add('shift')
+  for (const m of mods) if (!pressed.has(m)) return false
+  for (const m of pressed) if (!mods.has(m)) return false
+  return keysEqual(keyPart, e.key)
+}
+
+/** Which command (if any) a KeydownEvent maps to under the given bindings. */
+export function matchCombo(e: KeyComboEvent, kb: KeybindingMap): keyof KeybindingMap | null {
+  const entries = Object.entries(kb) as [keyof KeybindingMap, string][]
+  for (const [id, combo] of entries) {
+    if (combo && comboMatches(e, combo)) return id
+  }
+  return null
+}
+
+/** Human-readable display of a combo, e.g. "ctrl+`" → "Ctrl+`", "meta+s" → "⌘S". */
+export function formatCombo(combo: string | undefined): string {
+  if (!combo) return ''
+  const mac = isMacPlatform()
+  const labels: Record<string, string> = {
+    ctrl: 'Ctrl',
+    meta: mac ? '⌘' : 'Super',
+    alt: mac ? '⌥' : 'Alt',
+    shift: mac ? '⇧' : 'Shift',
+    space: 'Space',
+    esc: 'Esc',
+    up: '↑',
+    down: '↓',
+    left: '←',
+    right: '→'
+  }
+  const seps = mac ? '' : '+'
+  return combo
+    .split('+')
+    .filter(Boolean)
+    .map((p) => labels[p] ?? (p.length === 1 ? p.toUpperCase() : p))
+    .join(seps)
+}
+
 /** Default directories ignored by the project tree and indexer. */
 export const DEFAULT_IGNORED_DIRS = [
   '.git',

@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { AppSettings, DEFAULT_SETTINGS, DEFAULT_AI_CONFIG, AIConfig } from '../shared/types'
+import { defaultKeybindings } from '../shared/utils'
 
 let cache: AppSettings | null = null
 
@@ -18,7 +19,10 @@ export async function loadSettings(): Promise<AppSettings> {
     result = {
       ...DEFAULT_SETTINGS,
       ...parsed,
-      ai: { ...DEFAULT_AI_CONFIG, ...(parsed.ai ?? {}) }
+      ai: { ...DEFAULT_AI_CONFIG, ...(parsed.ai ?? {}) },
+      // platform-aware defaults (empty placeholders in DEFAULT_SETTINGS are a fallback only)
+      keybindings: { ...defaultKeybindings(), ...(parsed.keybindings ?? {}) },
+      terminal: { ...DEFAULT_SETTINGS.terminal, ...(parsed.terminal ?? {}) }
     }
   } catch {
     result = JSON.parse(JSON.stringify(DEFAULT_SETTINGS))

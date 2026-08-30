@@ -724,10 +724,96 @@ textarea:focus {
   color: var(--text-dim);
   flex-shrink: 0;
 }
-.terminal-host {
+.terminal-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-faint);
+  flex-shrink: 0;
+}
+.terminal-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.terminal-tabs::-webkit-scrollbar {
+  display: none;
+}
+.term-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px 2px 8px;
+  border: 1px solid var(--border-soft);
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  background: var(--bg-panel);
+  color: var(--text-dim);
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 11px;
+  user-select: none;
+}
+.term-tab:hover {
+  color: var(--text);
+  border-color: var(--border);
+}
+.term-tab.active {
+  background: #141519;
+  color: var(--text);
+  border-color: var(--border);
+}
+.term-tab.dead .tt-name {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+.term-tab .tt-close {
+  font-size: 9px;
+  border-radius: 3px;
+  padding: 1px 3px;
+  line-height: 1;
+  color: var(--text-faint);
+}
+.term-tab .tt-close:hover {
+  color: var(--danger);
+  background: rgba(255, 128, 128, 0.12);
+}
+.terminal-tabs .tt-add {
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  border-radius: 3px;
+  border-color: var(--border-soft);
+  background: transparent;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.terminal-tabs .tt-add:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.terminal-bodies {
   flex: 1;
   min-height: 0;
+  position: relative;
   background: #141519;
+}
+.terminal-host {
+  position: absolute;
+  inset: 0;
+  background: #141519;
+}
+.terminal-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 12px;
+  font-size: 12px;
+  color: var(--text-faint);
 }
 
 /* -------------------------------------------------------------- overlays */
@@ -906,7 +992,7 @@ textarea:focus {
   position: fixed;
   top: 50px;
   right: 16px;
-  width: 360px;
+  width: 380px;
   max-height: calc(100vh - 100px);
   overflow: auto;
   background: var(--bg-panel);
@@ -914,12 +1000,71 @@ textarea:focus {
   border-radius: 8px;
   z-index: 80;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
-  padding: 14px 16px;
+  padding: 12px 16px 14px;
+}
+.settings-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
 }
 .settings-panel h3 {
-  font-size: 12px;
-  margin-bottom: 10px;
+  font-size: 13px;
   color: var(--text);
+}
+.settings-section {
+  border-top: 1px solid var(--border-soft);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+.settings-section-title {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  margin-bottom: 8px;
+}
+.hotkey-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hotkey-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+}
+.hk-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.hk-label {
+  font-size: 12px;
+  color: var(--text);
+}
+.hk-hint {
+  font-size: 10px;
+  color: var(--text-faint);
+}
+.hk-recorder {
+  font-family: var(--mono);
+  font-size: 11px;
+  min-width: 84px;
+  text-align: center;
+  padding: 2px 8px;
+  flex-shrink: 0;
+}
+.hk-recorder:hover {
+  border-color: var(--accent);
+}
+.hk-recording {
+  font-size: 11px;
+  color: var(--warning);
+  font-family: var(--mono);
+  flex-shrink: 0;
 }
 .settings-row {
   display: flex;
@@ -947,7 +1092,7 @@ textarea:focus {
   display: flex;
   gap: 8px;
   justify-content: flex-end;
-  margin-top: 8px;
+  margin-top: 12px;
 }
 
 /* --------------------------------------------------------------- misc */

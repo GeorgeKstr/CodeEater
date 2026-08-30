@@ -195,12 +195,23 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
       }
       void activateProject(info.root, info.name)
     })
+    // application menu → renderer commands
+    const offMenuPrefs = api.app.onOpenPreferences(() => setSettingsOpen(true))
+    const offMenuPalette = api.app.onOpenCommandPalette(() => setFuzzyOpen(true))
+    const offMenuTerminal = api.app.onToggleTerminal(() => toggleTerminal())
+    const offMenuOpenProject = api.app.onOpenProject(() => void openProjectDialog())
+    const offMenuCloseProject = api.app.onCloseProject(() => void closeProject())
     return () => {
       offSettings()
       offAiStatus()
       offAiState()
       offChanges()
       offOpened()
+      offMenuPrefs()
+      offMenuPalette()
+      offMenuTerminal()
+      offMenuOpenProject()
+      offMenuCloseProject()
     }
   }, [])
 

@@ -8,7 +8,7 @@ import { FuzzyFileFinder } from '../search/FuzzyFileFinder'
 import { ChangesOverlay } from '../changes/ChangesOverlay'
 import { SettingsPanel } from '../settings/SettingsPanel'
 import { EmptyState } from './EmptyState'
-import { formatRelativeTime } from '../../shared/utils'
+import { formatRelativeTime, defaultKeybindings, matchCombo } from '../../shared/utils'
 
 function Layout(): React.JSX.Element {
   const app = useApp()
@@ -34,21 +34,44 @@ function Layout(): React.JSX.Element {
     return () => clearTimeout(t)
   }, [leftW, rightW, bottomH])
 
-  // global keyboard shortcuts: Ctrl+P, Ctrl+`, Ctrl+S
+  // global keyboard shortcuts — driven by user-rebindable settings (see Preferences ▸ Hotkeys)
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
-      const mod = e.ctrlKey || e.metaKey
-      if (!mod) return
-      const k = e.key.toLowerCase()
-      if (k === 'p') {
-        e.preventDefault()
-        app.setFuzzyOpen(true)
-      } else if (k === '`') {
-        e.preventDefault()
-        app.toggleTerminal()
-      } else if (k === 's') {
-        e.preventDefault()
-        void app.saveActive()
+      const kb = app.settings?.keybindings ?? defaultKeybindings()
+      const cmd = matchCombo(e, kb)
+      if (!cmd) return
+      // don't hijack plain-key combos while typing in inputs/editor
+      const el = e.target
+      const typing =
+        !!el &&
+        el instanceof HTMLElement &&
+        (el.tagName === 'INPUT' ||
+          el.tagName === 'TEXTAREA' ||
+          el.isContentEditable ||
+          (typeof el.closest === 'function' && !!el.closest('.monaco-editor, .xterm')))
+      const hasMod = e.ctrlKey || e.metaKey || e.altKey
+      if (typing && !hasMod) return
+      e.preventDefault()
+      switch (cmd) {
+        case 'findFile':
+          app.setFuzzyOpen(true)
+          break
+        case 'toggleTerminal':
+          app.toggleTerminal()
+          break
+        case 'saveFile':
+          void app.saveActive()
+          break
+        case 'openPreferences':
+          app.setSettingsOpen(true)
+          break
+        case 'closeTab':
+          if (app.activePath) void app.closeTab(app.activePath)
+          break
+        case 'newTerminal':
+          if (!app.terminalVisible) app.toggleTerminal()
+          void window.api.terminal.create().catch(() => undefined)
+          break
       }
     }
     window.addEventListener('keydown', onKey)

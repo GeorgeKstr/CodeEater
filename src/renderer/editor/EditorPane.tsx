@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useApp } from '../app/AppContext'
+import { formatCombo, defaultKeybindings } from '../../shared/utils'
 import { CodeEditor, SelectionSnapshot } from './CodeEditor'
 import { AIEditPrompt } from './AIEditPrompt'
 
@@ -23,7 +24,7 @@ export function EditorPane(): React.JSX.Element {
         <div className="empty-state">
           <div className="big">No file open</div>
           <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>
-            Click a file in the project tree, or press <span className="kbd">Ctrl+P</span>
+            Click a file in the project tree, or press <span className="kbd">{formatCombo(app.settings?.keybindings?.findFile ?? defaultKeybindings().findFile)}</span>
           </div>
         </div>
       </div>

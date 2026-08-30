@@ -428,6 +428,33 @@ export interface SessionRecord {
 // Settings & UI persistence
 // ---------------------------------------------------------------------------
 
+export interface KeybindingMap {
+  /** Open the fuzzy file finder (Ctrl+P) */
+  findFile: string
+  /** Show / hide the terminal pane (Ctrl+`) */
+  toggleTerminal: string
+  /** Save the active file (Ctrl+S) */
+  saveFile: string
+  /** Open preferences (Ctrl+,) */
+  openPreferences: string
+  /** Close the active editor tab (Ctrl+W) */
+  closeTab: string
+  /** Create a new terminal tab (Ctrl+Shift+`) */
+  newTerminal: string
+}
+
+export interface TerminalPreferenceSettings {
+  fontSize: number
+  fontFamily: string
+  scrollback: number
+}
+
+export const DEFAULT_TERMINAL_SETTINGS: TerminalPreferenceSettings = {
+  fontSize: 12,
+  fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
+  scrollback: 5000
+}
+
 export interface AppSettings {
   ai: AIConfig
   paneSizes: { left: number; right: number; bottom: number }
@@ -435,6 +462,8 @@ export interface AppSettings {
   terminalVisible: boolean
   runCommand?: string
   aiSearchAuto?: boolean
+  keybindings: KeybindingMap
+  terminal: TerminalPreferenceSettings
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -442,7 +471,27 @@ export const DEFAULT_SETTINGS: AppSettings = {
   paneSizes: { left: 260, right: 300, bottom: 200 },
   recentProjects: [],
   terminalVisible: false,
-  runCommand: ''
+  runCommand: '',
+  keybindings: {
+    findFile: '',
+    toggleTerminal: 'ctrl+`',
+    saveFile: '',
+    openPreferences: '',
+    closeTab: '',
+    newTerminal: ''
+  },
+  terminal: { ...DEFAULT_TERMINAL_SETTINGS }
+}
+
+// ---------------------------------------------------------------------------
+// Terminal
+// ---------------------------------------------------------------------------
+
+export interface TerminalSessionInfo {
+  id: string
+  title: string
+  alive: boolean
+  startedAt: number
 }
 
 // ---------------------------------------------------------------------------
@@ -454,6 +503,12 @@ export interface IpcApi {
     getVersion(): Promise<string>
     openProjectDialog(): Promise<ProjectInfo | null>
     selectFolder(): Promise<string | null>
+    /** main → renderer: user picked File ▸ Open Project (or Cmd/Ctrl+O) */
+    onOpenProject(cb: () => void): () => void
+    onCloseProject(cb: () => void): () => void
+    onOpenPreferences(cb: () => void): () => void
+    onOpenCommandPalette(cb: () => void): () => void
+    onToggleTerminal(cb: () => void): () => void
   }
   project: {
     open(root: string): Promise<ProjectInfo>
@@ -491,11 +546,19 @@ export interface IpcApi {
   }
   terminal: {
     start(): Promise<{ ok: boolean; error?: string }>
-    write(data: string): Promise<void>
-    resize(cols: number, rows: number): Promise<void>
+    /** list live terminal sessions (tabs) */
+    list(): Promise<TerminalSessionInfo[]>
+    /** spawn a new session; returns its id */
+    create(): Promise<{ ok: boolean; id?: string; error?: string }>
+    close(id: string): Promise<void>
+    activate(id: string): Promise<void>
+    write(id: string, data: string): Promise<void>
+    resize(id: string, cols: number, rows: number): Promise<void>
     kill(): Promise<void>
-    onData(cb: (data: string) => void): () => void
-    onExit(cb: (code: number | null) => void): () => void
+    onData(cb: (id: string, data: string) => void): () => void
+    onExit(cb: (id: string, code: number | null) => void): () => void
+    /** session list changed (created / closed / exited) */
+    onListChanged(cb: () => void): () => void
     isRunning(): Promise<boolean>
   }
   ai: {
