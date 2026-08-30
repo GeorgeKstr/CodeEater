@@ -457,6 +457,7 @@ export interface IpcApi {
   }
   project: {
     open(root: string): Promise<ProjectInfo>
+    onOpened(cb: (info: ProjectInfo) => void): () => void
     close(): Promise<void>
     getState(): Promise<ProjectUiState | null>
     getTree(): Promise<TreeNode[]>

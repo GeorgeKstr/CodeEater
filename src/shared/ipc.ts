@@ -5,6 +5,7 @@ export const IPC = {
   appSelectFolder: 'app:selectFolder',
 
   projectOpen: 'project:open',
+  projectOpened: 'project:opened',
   projectClose: 'project:close',
   projectGetState: 'project:getState',
   projectGetTree: 'project:getTree',

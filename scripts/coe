@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+#
+# coe — launch CodeEater from anywhere, like `code .`
+#
+#   coe               open CodeEater (last session state)
+#   coe .             open the current directory as a project
+#   coe ~/my-project  open a specific directory as a project
+#   coe -h            help
+#
+# Sandbox note: Chrome sandbox occasionally needs to be disabled in
+# containers/CI. The launcher auto-retries with --no-sandbox if the first
+# attempt dies with a sandbox error. Force it with COE_NO_SANDBOX=1.
+
+set -uo pipefail
+
+SELF="$(readlink -f "${BASH_SOURCE[0]:-$0}")"
+ROOT="$(dirname "$(dirname "$SELF")")"
+ELECTRON="$ROOT/node_modules/.bin/electron"
+APP="$ROOT"
+
+usage() {
+  sed -n '2,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  exit 0
+}
+
+for a in "$@"; do
+  case "$a" in
+    -h|--help|help) usage ;;
+  esac
+done
+
+if [ ! -x "$ELECTRON" ]; then
+  echo "CodeEater dependencies are not installed." >&2
+  echo "Run: cd \"$ROOT\" && npm install && npm run build" >&2
+  exit 1
+fi
+if [ ! -f "$ROOT/out/main/index.js" ]; then
+  echo "Building CodeEater… (first run)" >&2
+  (cd "$ROOT" && npm run build >/dev/null 2>&1) || {
+    echo "Build failed — run: cd \"$ROOT\" && npm run build" >&2
+    exit 1
+  }
+fi
+
+if [ -n "${COE_NO_SANDBOX:-}" ]; then
+  exec "$ELECTRON" "$APP" --no-sandbox "$@"
+fi
+
+probe_err="$(mktemp)"
+"$ELECTRON" "$APP" "$@" 2>"$probe_err" &
+probe_pid=$!
+sleep 4
+if kill -0 "$probe_pid" 2>/dev/null; then
+  wait "$probe_pid"
+  exit $?
+fi
+wait "$probe_pid"
+probe_code=$?
+if grep -qiE "sandbox|SUID sandbox" "$probe_err" 2>/dev/null; then
+  rm -f "$probe_err"
+  exec "$ELECTRON" "$APP" --no-sandbox "$@"
+fi
+cat "$probe_err" >&2
+rm -f "$probe_err"
+exit "$probe_code"

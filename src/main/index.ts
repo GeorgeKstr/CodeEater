@@ -1,12 +1,40 @@
 import { app, BrowserWindow } from 'electron'
 import path from 'path'
-import { registerIpc, setMainWindow, shutdown } from './ipc/register'
+import fs from 'fs'
+import { registerIpc, setMainWindow, shutdown, initProject } from './ipc/register'
 import { closeProject } from './project'
 
 const __dirname = import.meta.dirname
 
 // Keep windows from being garbage collected.
 let mainWindow: BrowserWindow | null = null
+
+/** Absolute path to the app icon (repo build/ directory). */
+function appIconPath(): string {
+  for (const candidate of [
+    path.join(__dirname, '../../build/icon.png'),
+    path.join(__dirname, '../../../build/icon.png')
+  ]) {
+    if (fs.existsSync(candidate)) return candidate
+  }
+  return ''
+}
+
+/** Canonicalize a CLI positional argument into a project root, or null. */
+async function cliProjectArg(): Promise<string | null> {
+  const args = process.argv.slice(2)
+  for (const a of args) {
+    if (a.startsWith('-')) continue
+    try {
+      const abs = path.resolve(a)
+      const st = await fs.promises.stat(abs)
+      if (st.isDirectory()) return abs
+    } catch {
+      /* not a directory — skip */
+    }
+  }
+  return null
+}
 
 async function createWindow(): Promise<void> {
   mainWindow = new BrowserWindow({
@@ -16,6 +44,7 @@ async function createWindow(): Promise<void> {
     minHeight: 560,
     show: false,
     backgroundColor: '#1e1f25',
+    icon: appIconPath() || undefined,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
@@ -103,6 +132,13 @@ app.whenReady().then(async () => {
   registerIpc()
   await createWindow()
   setMainWindow(mainWindow!)
+
+  // CLI: `coe <dir>` opens that directory as a project.
+  const projectRoot = await cliProjectArg()
+  if (projectRoot) {
+    void initProject(projectRoot).catch((e) => console.error('failed to open project from CLI:', e))
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) void createWindow()
   })

@@ -189,8 +189,8 @@ export function registerIpc(): void {
 
   // -------------------------------------------------------------- terminal
   ipcMain.handle(IPC.terminalStart, async () => {
-    const res = ensureTerminal()
     const root = getProjectRoot()
+    const res = ensureTerminal(root ?? process.cwd())
     return { ...res, cwd: root ?? process.cwd() }
   })
   ipcMain.handle(IPC.terminalWrite, (_e, data: string) => writeToTerminal(data))
@@ -313,7 +313,10 @@ async function initProject(root: string): Promise<void> {
   await saveSettings({ recentProjects: recents.slice(0, 10) })
   // asynchronously connect AI — never block the editor
   void connectAI()
+  send(IPC.projectOpened, info)
 }
+
+export { initProject }
 
 function updateExpanded(dirs: string[], rel: string, expanded: boolean): string[] {
   const set = new Set(dirs)

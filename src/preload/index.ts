@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 import { IPC } from '../shared/ipc'
-import { IpcApi, FsEvent, AIOperationStatusEvent } from '../shared/types'
+import { IpcApi, ProjectInfo, FsEvent, AIOperationStatusEvent } from '../shared/types'
 
 function on<T>(channel: string, cb: (payload: T) => void): () => void {
   const listener = (_e: IpcRendererEvent, payload: T): void => cb(payload)
@@ -16,6 +16,7 @@ const api: IpcApi = {
   },
   project: {
     open: (root) => ipcRenderer.invoke(IPC.projectOpen, root),
+    onOpened: (cb) => on<ProjectInfo>(IPC.projectOpened, cb),
     close: () => ipcRenderer.invoke(IPC.projectClose),
     getState: () => ipcRenderer.invoke(IPC.projectGetState),
     getTree: () => ipcRenderer.invoke(IPC.projectGetTree),

@@ -186,12 +186,23 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
       }
     })
     const offChanges = api.changes.onChanged(() => void refreshChanges())
+    const offOpened = api.project.onOpened((info) => {
+      // main opened a project (dialog, CLI `coe <dir>`, or load-project)
+      if (pendingOpenedRef.current.has(info.root)) {
+        pendingOpenedRef.current.delete(info.root)
+        return // dialog path drives activation itself
+      }
+      void activateProject(info.root, info.name)
+    })
     return () => {
       offSettings()
       offAi()
       offChanges()
+      offOpened()
     }
   }, [])
+
+  const pendingOpenedRef = useRef<Set<string>>(new Set())
 
   async function handleFsEvent(ev: FsEvent): Promise<void> {
     const root = projectRootRef.current
@@ -256,12 +267,18 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
   // --------------------------------------------------------------- project
   async function openProjectDialog(): Promise<void> {
     const info = await api.app.openProjectDialog()
-    if (info) await activateProject(info.root, info.name)
+    if (info) {
+      pendingOpenedRef.current.add(info.root)
+      await activateProject(info.root, info.name)
+    }
   }
 
   async function openProjectByPath(path: string): Promise<void> {
     const info = await api.project.open(path)
-    if (info) await activateProject(info.root, info.name)
+    if (info) {
+      pendingOpenedRef.current.add(info.root)
+      await activateProject(info.root, info.name)
+    }
   }
 
   async function activateProject(root: string, name: string): Promise<void> {

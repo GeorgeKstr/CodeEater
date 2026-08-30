@@ -29,14 +29,14 @@ function shellPath(): string {
   )
 }
 
-export function startTerminal(cols = lastCols, rows = lastRows): { ok: boolean; error?: string } {
+export function startTerminal(cols = lastCols, rows = lastRows, cwd?: string): { ok: boolean; error?: string } {
   try {
     const id = `term-${Date.now()}`
     const proc = pty.spawn(shellPath(), [], {
       name: 'xterm-256color',
       cols,
       rows,
-      cwd: process.cwd(),
+      cwd: cwd ?? process.cwd(),
       env: { ...process.env, TERM: 'xterm-256color' },
       useConpty: process.platform === 'win32'
     })
@@ -60,9 +60,9 @@ export function startTerminal(cols = lastCols, rows = lastRows): { ok: boolean; 
   }
 }
 
-export function ensureTerminal(): { ok: boolean; error?: string } {
+export function ensureTerminal(cwd?: string): { ok: boolean; error?: string } {
   if (activeId && sessions.has(activeId)) return { ok: true }
-  return startTerminal()
+  return startTerminal(lastCols, lastRows, cwd)
 }
 
 export function writeToTerminal(data: string): void {
