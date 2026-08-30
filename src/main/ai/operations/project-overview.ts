@@ -52,6 +52,18 @@ export async function projectOverviewOp(
       model
     } as ProjectOverview
   }
+  // AI offline: still show the most recent cached overview instead of failing
+  if (!cached && runtime.gateway.getState().status !== 'connected') {
+    const latest = getLatestArtifact('project-overview')
+    if (latest) {
+      return {
+        ...JSON.parse(latest.resultJson),
+        cached: true,
+        generatedAt: latest.generatedAt,
+        model: latest.model || undefined
+      } as ProjectOverview
+    }
+  }
 
   runtime.status('Analyzing project…')
   const result = await structuredGenerate<{ summary: string }>(
@@ -149,6 +161,9 @@ export async function featureDetectionOp(
     searchHints: (f.searchHints ?? []).slice(0, 6),
     resolved: false
   }))
+  // feature context changed → file overviews that lacked it will be rebuilt
+  const { invalidateFileOverviewsOnFeatureChange } = await import('./file-overview')
+  invalidateFileOverviewsOnFeatureChange(features)
   putArtifact({
     kind: 'project-features',
     filePath: '',

@@ -438,6 +438,25 @@ export function resolveImportEdges(
   }
 }
 
+/** Re-resolve import edges for every file after the full tree is present. */
+export function resolveAllImportEdges(): void {
+  const d = getDb()
+  const files = d.prepare('SELECT id, path FROM files').all() as { id: number; path: string }[]
+  const root = projectRootOf()
+  if (!root) return
+  for (const f of files) {
+    resolveImportEdges(d, f.id, root, f.path)
+  }
+}
+
+let currentProjectRoot: string | null = null
+export function setProjectRootForIndex(root: string | null): void {
+  currentProjectRoot = root
+}
+function projectRootOf(): string | null {
+  return currentProjectRoot
+}
+
 /** Full project index pass. Returns counts. */
 export async function indexProject(projectRoot: string): Promise<{ count: number; errors: number }> {
   let count = 0
@@ -474,6 +493,7 @@ export async function indexProject(projectRoot: string): Promise<{ count: number
   for (const row of rows) {
     if (!seen.has(row.path)) d.prepare('DELETE FROM files WHERE path = ?').run(row.path)
   }
+  resolveAllImportEdges()
   return { count, errors }
 }
 

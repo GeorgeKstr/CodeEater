@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
 import { IPC } from '../shared/ipc'
-import { IpcApi, ProjectInfo, FsEvent, AIOperationStatusEvent } from '../shared/types'
+import { IpcApi, ProjectInfo, AIState, FsEvent, AIOperationStatusEvent } from '../shared/types'
 
 function on<T>(channel: string, cb: (payload: T) => void): () => void {
   const listener = (_e: IpcRendererEvent, payload: T): void => cb(payload)
@@ -58,6 +58,7 @@ const api: IpcApi = {
   },
   ai: {
     getState: () => ipcRenderer.invoke(IPC.aiState),
+    onStateChanged: (cb) => on<AIState>(IPC.aiStateChanged, cb),
     connect: (force) => ipcRenderer.invoke(IPC.aiConnect, force),
     setConfig: (cfg) => ipcRenderer.invoke(IPC.aiSetConfig, cfg),
     discoverModels: () => ipcRenderer.invoke(IPC.aiDiscoverModels),

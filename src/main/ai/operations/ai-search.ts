@@ -152,7 +152,7 @@ export async function aiSearchFinalOp(
 
   const result = await structuredGenerate<{
     summary: string
-    results: { path: string; startLine?: number; endLine?: number; reason: string }[]
+    results: { path?: string; file?: string; relPath?: string; startLine?: number; endLine?: number; reason?: string }[]
   }>(
     runtime,
     [
@@ -163,25 +163,55 @@ export async function aiSearchFinalOp(
       userPrompt(b.sections.map((s) => `### ${s.title}\n${s.text}`).join('\n\n'))
     ],
     schemas.aiSearchFinal,
-    { jsonSchema: schemas.aiSearchFinal }
+    {
+      jsonSchema: schemas.aiSearchFinal,
+      normalize: (v) => {
+        const obj = (v ?? {}) as Record<string, unknown>
+        const raw = Array.isArray(obj.results) ? obj.results : []
+        const results = raw.map((r: unknown) => {
+          if (typeof r === 'string') return { path: r, reason: '', startLine: undefined, endLine: undefined }
+          if (r && typeof r === 'object') {
+            const ro = r as Record<string, unknown>
+            const path = ro.path ?? ro.file ?? ro.relPath ?? ro.fileName ?? ''
+            return {
+              path,
+              reason: typeof ro.reason === 'string' ? ro.reason : '',
+              startLine: ro.startLine,
+              endLine: ro.endLine
+            }
+          }
+          return { path: '', reason: '', startLine: undefined, endLine: undefined }
+        })
+        return {
+          summary: typeof obj.summary === 'string' ? obj.summary : '',
+          results
+        }
+      }
+    }
   )
 
-  const accepted = await validateResults(runtime, result.results ?? [])
+  const accepted = await validateResults(
+    runtime,
+    (result.results ?? []).map((r) => ({ path: r.path ?? '', startLine: r.startLine, endLine: r.endLine, reason: r.reason ?? '' }))
+  )
   return {
     summary: (result.summary ?? '').slice(0, 400),
     results: accepted
   }
+
 }
 
 async function validateResults(
   runtime: OpRuntime,
   results: { path: string; startLine?: number; endLine?: number; reason: string }[]
 ): Promise<AISearchResult[]> {
-  const valid = await filterValidPaths(runtime, results.map((r) => r.path))
+  const nonEmpty = results.filter((r) => r.path && r.path !== '.' && !r.path.startsWith('..'))
+  if (nonEmpty.length === 0) return []
+  const valid = await filterValidPaths(runtime, nonEmpty.map((r) => r.path))
   if (valid.length === 0) return []
   const lcCache = new Map<string, number>()
   const out: AISearchResult[] = []
-  for (const r of results) {
+  for (const r of nonEmpty) {
     if (!valid.includes(r.path)) continue
     let lineCount = lcCache.get(r.path)
     if (lineCount === undefined) {

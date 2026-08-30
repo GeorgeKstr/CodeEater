@@ -37,10 +37,19 @@ export const gateway = new ModelGateway()
 
 let currentRequestId: string | null = null
 let currentOperation: AIOperationId | null = null
+let connectInFlight: Promise<AIState> | null = null
+
+// wire gateway state changes to the 'state' event (broadcast to the UI)
+gateway.onStateChange(() => emitter.emit('state', gateway.getState()))
 
 export function onStatus(cb: (e: AIOperationStatusEvent) => void): () => void {
   emitter.on('status', cb)
   return () => emitter.off('status', cb)
+}
+
+export function onAiState(cb: (s: AIState) => void): () => void {
+  emitter.on('state', cb)
+  return () => emitter.off('state', cb)
 }
 
 function emitStatus(op: AIOperationId, message: string): void {
@@ -51,13 +60,29 @@ function emitStatus(op: AIOperationId, message: string): void {
 export async function applyAIConfig(cfg: Partial<AIConfig>): Promise<AIState> {
   gateway.setConfig(cfg)
   await updateAiConfig(cfg)
-  return gateway.connect(true)
+  const state = await gateway.connect(true)
+  emitter.emit('state', state)
+  return state
 }
 
 export async function connectAI(force = false): Promise<AIState> {
   const settings = await loadSettings()
   gateway.setConfig(settings.ai)
-  return gateway.connect(force)
+  if (gateway.getState().status === 'connected' && !force) return gateway.getState()
+  if (connectInFlight && !force) return connectInFlight
+  connectInFlight = gateway.connect(force).finally(() => {
+    connectInFlight = null
+  })
+  const state = await connectInFlight
+  emitter.emit('state', state)
+  return state
+}
+
+/** Ensure the gateway has a selected model before cache keys are computed. */
+export async function ensureAiConnected(): Promise<AIState> {
+  const s = gateway.getState()
+  if (s.status === 'connected' && gateway.getActiveModel()) return s
+  return connectAI()
 }
 
 export async function runOperation(

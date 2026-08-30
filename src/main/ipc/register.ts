@@ -25,7 +25,7 @@ import {
 import { textSearch } from '../core/text-search'
 import { fuzzyFiles, invalidateFileIndex } from '../core/file-search'
 import { getSymbols, getChunks, getImports, getReferences } from '../core/retrieval'
-import { indexProject, reindexPath } from '../core/ts-indexer'
+import { indexProject, reindexPath, setProjectRootForIndex } from '../core/ts-indexer'
 import {
   ensureTerminal,
   writeToTerminal,
@@ -42,6 +42,8 @@ import {
   runOperation,
   cancelOperation,
   onStatus,
+  onAiState,
+  ensureAiConnected,
   warmFeatureMemento
 } from '../ai/service'
 import {
@@ -213,10 +215,12 @@ export function registerIpc(): void {
   })
   ipcMain.handle(IPC.aiRun, async (_e, operation: string, input: unknown, requestId?: string) => {
     void requestId
+    await ensureAiConnected()
     return runOperation(operation as never, input)
   })
   ipcMain.handle(IPC.aiCancel, (_e, requestId?: string) => cancelOperation(requestId))
   onStatus((e) => send(IPC.aiStatus, e))
+  onAiState((s) => send(IPC.aiStateChanged, s))
 
   // -------------------------------------------------------------- overview
   ipcMain.handle(IPC.overviewFile, async (_e, p: string, force?: boolean) => fileOverviewOp(p, force))
@@ -305,6 +309,7 @@ async function initProject(root: string): Promise<void> {
   openDatabase(root)
   startSession(root)
   void warmFeatureMemento()
+  setProjectRootForIndex(root)
   void indexProject(root).then(() => invalidateFileIndex()).catch(() => undefined)
   // record recent project
   const settings = await loadSettings()

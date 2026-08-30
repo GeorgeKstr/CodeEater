@@ -21,13 +21,22 @@
     const flat = JSON.stringify(tree)
     step('tree-built', flat.includes('SearchService.ts') && flat.includes('UserService.ts'))
 
-    // 3. AI connect
+    // 3. AI connect (startup already connects — verify state + loaded model follows)
     let ai = await window.api.ai.getState()
     for (let i = 0; i < 30 && ai.status !== 'connected'; i++) {
       await sleep(500)
       ai = await window.api.ai.getState()
     }
     step('ai-connected', ai.status === 'connected', `${ai.status} ${ai.activeModel ?? ''}`)
+    step('ai-follows-loaded-model', !!(ai.activeModel && ai.activeModel.startsWith('qwen3.6-35b')), `active=${ai.activeModel}`)
+
+    // 3b. state change events reach the renderer
+    const stateEvents = []
+    const offState = window.api.ai.onStateChanged((s) => stateEvents.push(`${s.status}:${s.activeModel ?? ''}`))
+    await window.api.ai.connect(true)
+    await sleep(1500)
+    offState()
+    step('ai-state-events', stateEvents.some((e) => e.startsWith('connected')), stateEvents.slice(0, 3).join(' | '))
 
     // 4. deterministic search
     const textHits = await window.api.search.text({ query: 'rankResults', maxResults: 20 })
@@ -51,13 +60,17 @@
     const imports = await window.api.search.getImports('src/auth/AuthController.ts')
     step('imports', imports.some((i) => i.rawTarget.includes('UserService')), JSON.stringify(imports))
 
-    // 8. file overview (AI)
+    // 8. file overview (AI) — must hit cache on second call
     const fo = await window.api.overview.getFileOverview('src/services/UserService.ts')
     step('file-overview', fo.summary.length > 10, fo.summary)
+    const fo2 = await window.api.overview.getFileOverview('src/services/UserService.ts')
+    step('file-overview-cached', fo2.cached === true, `cached=${fo2.cached} generated=${new Date(fo2.generatedAt).toLocaleTimeString()}`)
 
-    // 9. project overview (AI)
+    // 9. project overview (AI) — second call must be served from cache
     const po = await window.api.overview.getProjectOverview()
     step('project-overview', po.summary.length > 10, po.summary)
+    const po2 = await window.api.overview.getProjectOverview()
+    step('project-overview-cached', po2.cached === true, `cached=${po2.cached} generated=${new Date(po2.generatedAt).toLocaleTimeString()}`)
     step('po-commands', po.commands.length >= 0, JSON.stringify(po.commands))
     step('po-features', po.features.length > 0, po.features.map((f) => f.name).join(','))
 

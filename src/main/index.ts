@@ -2,6 +2,7 @@ import { app, BrowserWindow } from 'electron'
 import path from 'path'
 import fs from 'fs'
 import { registerIpc, setMainWindow, shutdown, initProject } from './ipc/register'
+import { connectAI } from './ai/service'
 import { closeProject } from './project'
 
 const __dirname = import.meta.dirname
@@ -130,6 +131,7 @@ async function createWindow(): Promise<void> {
 
 app.whenReady().then(async () => {
   registerIpc()
+  void connectAI() // keep AI status live even before a project is opened
   await createWindow()
   setMainWindow(mainWindow!)
 

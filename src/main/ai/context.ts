@@ -198,7 +198,9 @@ async function firstLevels(root: string): Promise<string[]> {
   const { isIgnored } = await import('../../shared/utils')
   const rows: string[] = []
   try {
+    // readdir order is filesystem-dependent — sort so the manifest hash is stable
     const entries = await fs.readdir(root, { withFileTypes: true })
+    entries.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
     for (const e of entries) {
       if (e.isDirectory()) {
         if (isIgnored(e.name)) continue
@@ -206,7 +208,10 @@ async function firstLevels(root: string): Promise<string[]> {
         // one level deeper, top 3 each
         try {
           const sub = await fs.readdir(pathJoin(root, e.name), { withFileTypes: true })
-          const dirs = sub.filter((s) => s.isDirectory() && !isIgnored(s.name)).slice(0, 3)
+          const dirs = sub
+            .filter((s) => s.isDirectory() && !isIgnored(s.name))
+            .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+            .slice(0, 3)
           for (const d of dirs) rows.push(`  ${e.name}/${d.name}/`)
         } catch {
           /* ignore */

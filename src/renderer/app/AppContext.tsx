@@ -178,13 +178,14 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
 
   useEffect(() => {
     const offSettings = api.watcher.onEvent((ev) => handleFsEvent(ev))
-    const offAi = api.ai.onStatus((e) => {
+    const offAiStatus = api.ai.onStatus((e) => {
       setAiStatus(e)
       if (e.error) {
         setAiWorking(false)
         setAiWorkingMessage('')
       }
     })
+    const offAiState = api.ai.onStateChanged((s) => setAi(s))
     const offChanges = api.changes.onChanged(() => void refreshChanges())
     const offOpened = api.project.onOpened((info) => {
       // main opened a project (dialog, CLI `coe <dir>`, or load-project)
@@ -196,7 +197,8 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
     })
     return () => {
       offSettings()
-      offAi()
+      offAiStatus()
+      offAiState()
       offChanges()
       offOpened()
     }
@@ -565,14 +567,6 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
     const state = await api.ai.connect(true)
     setAi(state)
   }
-
-  useEffect(() => {
-    setAiStatus((s) => {
-      if (!s) return s
-      void api.ai.getState().then(setAi)
-      return s
-    })
-  }, [])
 
   // ------------------------------------------------------------- settings
   async function updateSettings(partial: Partial<AppSettings>): Promise<void> {

@@ -50,14 +50,26 @@ export class AIError extends Error {
 export class ModelGateway {
   private config: AIConfig = { ...DEFAULT_AI_CONFIG }
   private models: ModelInfo[] = []
+  private usableModels: ModelInfo[] = []
   private activeModel: string | null = null
   private capabilities: ModelCapabilities = defaultCapabilities()
   private controllers = new Map<string, AbortController>()
   private status: AIStatusKind = 'unconfigured'
   private error: string | undefined
+  private failedCandidates = new Set<string>()
+  private stateListener: (() => void) | null = null
 
   constructor() {
     this.status = 'unconfigured'
+  }
+
+  /** subscribe to state changes (used to broadcast to the UI) */
+  onStateChange(cb: () => void): void {
+    this.stateListener = cb
+  }
+
+  private touchState(): void {
+    this.stateListener?.()
   }
 
   setConfig(cfg: Partial<AIConfig>): void {
@@ -86,6 +98,11 @@ export class ModelGateway {
     return this.config.baseUrl.replace(/\/+$/, '')
   }
 
+  private emitState(): void {
+    this.touchState()
+    // also settle the in-flight status promise chain via connect callers
+  }
+
   // -------------------------------------------------------------------------
   // Discovery
   // -------------------------------------------------------------------------
@@ -95,30 +112,75 @@ export class ModelGateway {
     this.status = 'connecting'
     this.error = undefined
     try {
-      const models = await this.discoverModels()
+      const { models, usable } = await this.discoverModels()
       this.models = models
-      const selected = this.selectModel(models)
+      this.usableModels = usable
+      const selected = this.selectModel()
       if (!selected) {
         this.status = 'offline'
         this.error = 'no usable model available on endpoint'
+        this.emitState()
         return this.getState()
       }
       this.activeModel = selected
       await this.probeCapabilities()
       this.status = 'connected'
+      this.failedCandidates.clear()
+      this.emitState()
       void force
       return this.getState()
     } catch (e) {
       this.status = 'offline'
       this.error = (e as Error).message
       this.models = []
+      this.usableModels = []
       this.activeModel = null
+      this.emitState()
       return this.getState()
     }
   }
 
-  async discoverModels(): Promise<ModelInfo[]> {
-    const url = `${this.getBaseUrl()}/models`
+  /**
+   * Discover usable models. Prefers the LM Studio v0 API which reports which
+   * models are actually LOADED; falls back to the OpenAI-compatible /v1/models.
+   */
+  async discoverModels(): Promise<{ models: ModelInfo[]; usable: ModelInfo[] }> {
+    const base = this.getBaseUrl()
+    // LM Studio exposes /api/v0/models with per-model state (loaded / not-loaded).
+    const v0Root = base.replace(/\/v1\/?(\/)?$/, '')
+    const v0Url = `${v0Root}/api/v0/models`
+    try {
+      const res = await fetch(v0Url, {
+        method: 'GET',
+        headers: authHeaders(this.config)
+      })
+      if (res.ok) {
+        const body = (await res.json()) as {
+          data: {
+            id: string
+            type?: string
+            state?: string
+            max_context_length?: number
+          }[]
+        }
+        const all: ModelInfo[] = []
+        const usable: ModelInfo[] = []
+        for (const m of body.data ?? []) {
+          if (!m.id) continue
+          if (m.type === 'embeddings') continue
+          const info: ModelInfo = { id: m.id }
+          all.push(info)
+          if (m.state === 'loaded') usable.push(info)
+          if (m.state === 'loaded' && m.max_context_length && !this.config.model && this.config.contextWindow > m.max_context_length) {
+            // do not override user config; informational only
+          }
+        }
+        return { models: all, usable }
+      }
+    } catch {
+      /* v0 API unavailable — fall back below */
+    }
+    const url = `${base}/models`
     const controller = new AbortController()
     this.controllers.set('discover', controller)
     try {
@@ -129,7 +191,8 @@ export class ModelGateway {
       })
       if (!res.ok) throw new AIError(`endpoint returned ${res.status}`, 'offline')
       const body = (await res.json()) as { data: { id: string; owned_by?: string }[] }
-      return (body.data ?? []).map((m) => ({ id: m.id, ownedBy: m.owned_by }))
+      const all = (body.data ?? []).map((m) => ({ id: m.id, ownedBy: m.owned_by }))
+      return { models: all, usable: all }
     } catch (e) {
       if (e instanceof AIError) throw e
       throw new AIError(`cannot reach ${url}: ${(e as Error).message}`, 'offline')
@@ -138,27 +201,42 @@ export class ModelGateway {
     }
   }
 
-  /** Choose which model to use for everything. */
-  private selectModel(models: ModelInfo[]): string | null {
-    if (models.length === 0) return null
+  /** Choose which model to use. Prefers currently-loaded models. */
+  private selectModel(): string | null {
+    const all = this.models
+    const usable = this.usableModels.length > 0 ? this.usableModels : all
+    const candidates = usable.filter((m) => !this.failedCandidates.has(m.id))
+    const pool = candidates.length > 0 ? candidates : usable
+    if (pool.length === 0) return null
     if (this.config.modelMode === 'manual' && this.config.model) {
-      const found = models.find((m) => m.id === this.config.model)
+      const found = pool.find((m) => m.id === this.config.model) ?? all.find((m) => m.id === this.config.model)
       if (found) return found.id
     }
-    // auto: one model → use it
-    const chatModels = models.filter((m) => !/embed/i.test(m.id))
-    if (chatModels.length === 1) return chatModels[0].id
-    if (chatModels.length > 1) {
-      // prefer a previously selected model, then a heuristically "main" one
-      if (this.activeModel && chatModels.some((m) => m.id === this.activeModel)) {
-        return this.activeModel
-      }
-      const preferred =
-        chatModels.find((m) => /(instruct|chat|it|8b|7b|13b|14b|27b|32b|70b)/i.test(m.id)) ??
-        chatModels[0]
-      return preferred.id
-    }
-    return chatModels[0]?.id ?? models[0].id
+    // auto: previously working model stays preferred while still available
+    if (this.activeModel && pool.some((m) => m.id === this.activeModel)) return this.activeModel
+    if (pool.length === 1) return pool[0].id
+    const preferred =
+      pool.find((m) => /(instruct|chat|it)/i.test(m.id)) ??
+      pool.find((m) => /(qwen|llama|mistral|phi|gemma|deepseek)/i.test(m.id)) ??
+      pool[0]
+    return preferred.id
+  }
+
+  /** Drop the current model (a load failure) and pick another; emits state. */
+  rotateModelOnFailure(): string | null {
+    if (this.activeModel) this.failedCandidates.add(this.activeModel)
+    const next = this.selectModel()
+    if (next === this.activeModel) return null
+    this.activeModel = next
+    if (next) this.status = 'connected'
+    else this.status = 'offline'
+    this.emitState()
+    return next
+  }
+
+  /** true when a generation error looks like the model failed to load on the server */
+  isModelLoadFailure(message: string): boolean {
+    return /failed to load model|model.*not (found|loaded)|no model/i.test(message)
   }
 
   private async probeCapabilities(): Promise<void> {
@@ -224,28 +302,46 @@ export class ModelGateway {
     }
 
     const baseMessages = messages
-    const attempts: (() => Promise<GenerateResult>)[] = []
-    for (let variant = 0; variant < thinkingVariants.length; variant++) {
-      attempts.push(() =>
-        this.postChat(baseMessages, { ...body, ...thinkingVariants[variant] }, requestId, opts)
-      )
+    const buildAttempts = (): (() => Promise<GenerateResult>)[] => {
+      const attempts: (() => Promise<GenerateResult>)[] = []
+      for (let variant = 0; variant < thinkingVariants.length; variant++) {
+        attempts.push(() =>
+          this.postChat(baseMessages, { ...body, ...thinkingVariants[variant] }, requestId, opts)
+        )
+      }
+      // escalation: larger budget retry when empty-content happens
+      attempts.push(() => this.generateEscalated(baseMessages, requestId, opts, maxTokens))
+      return attempts
     }
-    // escalation: larger budget retry when empty-content happens
-    attempts.push(() =>
-      this.generateEscalated(baseMessages, requestId, opts, maxTokens)
-    )
 
     let lastErr: Error | null = null
-    for (const attempt of attempts) {
-      try {
-        const res = await attempt()
-        if (res && res.content && res.content.trim()) return res
-        lastErr = new AIError('model returned empty content', 'generation')
-      } catch (e) {
-        lastErr = e instanceof Error ? e : new Error(String(e))
-        if (e instanceof AIError && e.kind === 'cancelled') throw e
-        if (e instanceof AIError && e.kind === 'offline') throw e
-        // continue to next variant for generation/parse failures
+    const maxRotations = Math.max(0, this.models.length - 1)
+    for (let rotation = 0; rotation <= maxRotations; rotation++) {
+      for (const attempt of buildAttempts()) {
+        try {
+          const res = await attempt()
+          if (res && res.content && res.content.trim()) {
+            this.failedCandidates.clear()
+            return res
+          }
+          lastErr = new AIError('model returned empty content', 'generation')
+        } catch (e) {
+          lastErr = e instanceof Error ? e : new Error(String(e))
+          if (e instanceof AIError && e.kind === 'cancelled') throw e
+          if (e instanceof AIError && e.kind === 'offline') throw e
+          // a model that fails to LOAD on the server is not usable — rotate
+          if (e instanceof AIError && this.isModelLoadFailure(e.message)) {
+            const next = this.rotateModelOnFailure()
+            if (!next) {
+              lastErr = new AIError(
+                `no available model could be loaded on the endpoint (tried ${[...this.failedCandidates].join(', ')})`,
+                'generation'
+              )
+            }
+            break // rebuild attempts with the new model
+          }
+          // otherwise continue to the next variant
+        }
       }
     }
     throw lastErr ?? new AIError('all generation attempts failed', 'generation')

@@ -41,6 +41,7 @@ export const IPC = {
   terminalRunning: 'terminal:isRunning',
 
   aiState: 'ai:getState',
+  aiStateChanged: 'ai:state',
   aiConnect: 'ai:connect',
   aiSetConfig: 'ai:setConfig',
   aiDiscoverModels: 'ai:discoverModels',

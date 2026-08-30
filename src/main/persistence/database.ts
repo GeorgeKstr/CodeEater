@@ -146,6 +146,19 @@ export function putArtifact(rec: ArtifactRecord): void {
   ).run(rec)
 }
 
+/** Map a SQLite artifact row (snake_case) to the camelCase record shape. */
+function mapArtifactRow(row: Record<string, unknown>): ArtifactRecord {
+  return {
+    kind: String(row.kind ?? ''),
+    filePath: String(row.file_path ?? ''),
+    inputHash: String(row.input_hash ?? ''),
+    model: String(row.model ?? ''),
+    promptVersion: Number(row.prompt_version ?? 0),
+    resultJson: String(row.result_json ?? ''),
+    generatedAt: Number(row.generated_at ?? 0)
+  }
+}
+
 export function getArtifact(
   kind: string,
   filePath: string,
@@ -159,19 +172,23 @@ export function getArtifact(
       `SELECT * FROM ai_artifacts
        WHERE kind = ? AND file_path = ? AND input_hash = ? AND model = ? AND prompt_version = ?`
     )
-    .get(kind, filePath, inputHash, model, promptVersion) as
-    | (ArtifactRecord & { id: number })
-    | undefined
-  return row ?? null
+    .get(kind, filePath, inputHash, model, promptVersion) as Record<string, unknown> | undefined
+  return row ? mapArtifactRow(row) : null
 }
 
-/** Most recent artifact of a kind regardless of key (used for memento lookups). */
-export function getLatestArtifact(kind: string): ArtifactRecord | null {
+/** Most recent artifact of a kind regardless of key (used for memento + offline display). */
+export function getLatestArtifact(kind: string, filePath?: string): ArtifactRecord | null {
   const d = getDb()
-  const row = d
-    .prepare(`SELECT * FROM ai_artifacts WHERE kind = ? ORDER BY generated_at DESC LIMIT 1`)
-    .get(kind) as (ArtifactRecord & { id: number }) | undefined
-  return row ?? null
+  const row = filePath
+    ? (d
+        .prepare(
+          `SELECT * FROM ai_artifacts WHERE kind = ? AND file_path = ? ORDER BY generated_at DESC LIMIT 1`
+        )
+        .get(kind, filePath) as Record<string, unknown> | undefined)
+    : (d
+        .prepare(`SELECT * FROM ai_artifacts WHERE kind = ? ORDER BY generated_at DESC LIMIT 1`)
+        .get(kind) as Record<string, unknown> | undefined)
+  return row ? mapArtifactRow(row) : null
 }
 
 export function invalidateFileArtifacts(relPath: string): void {

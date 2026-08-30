@@ -500,6 +500,7 @@ export interface IpcApi {
   }
   ai: {
     getState(): Promise<AIState>
+    onStateChanged(cb: (s: AIState) => void): () => void
     connect(force?: boolean): Promise<AIState>
     setConfig(cfg: Partial<AIConfig>): Promise<AIState>
     discoverModels(): Promise<ModelInfo[]>

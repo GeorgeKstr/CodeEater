@@ -2,7 +2,7 @@ import { schemas } from './schemas'
 import { OpRuntime, structuredGenerate, renameKeys, JSON_SYSTEM, systemPrompt, userPrompt } from './helpers'
 import { FileOverview, FileSection, RelatedFile } from '../../../shared/types'
 import { sha256 } from '../../../shared/utils'
-import { getArtifact, getLatestArtifact, putArtifact } from '../../persistence/database'
+import { getArtifact, getLatestArtifact, putArtifact, getDb } from '../../persistence/database'
 import {
   buildFileContextSection,
   makeSectionBuilder,
@@ -32,7 +32,9 @@ export async function fileOverviewOp(
     .filter((p): p is string => !!p)
   const references = getReferences(relPath)
 
-  // deterministic feature membership (hint-match against path)
+  // deterministic feature membership (hint-match against path) — used in the
+  // prompt, but deliberately NOT part of the cache key (feature detection may
+  // arrive later; explicit invalidation handles the change instead)
   const featureHints = (await mementoFeatures()).filter((f) =>
     [...f.searchHints, f.name].some((h) => relPath.toLowerCase().includes(h.toLowerCase()))
   )
@@ -43,7 +45,6 @@ export async function fileOverviewOp(
       outline,
       imports: directRelated,
       references,
-      featureHints: featureHints.map((f) => f.name),
       promptVersion: PROMPT_VERSION
     })
   )
@@ -57,6 +58,19 @@ export async function fileOverviewOp(
       generatedAt: cached.generatedAt,
       model
     } as FileOverview
+  }
+  // AI offline: still show the most recent cached overview instead of failing
+  if (!cached && runtime.gateway.getState().status !== 'connected') {
+    const latest = getLatestArtifact('file-overview', relPath)
+    if (latest) {
+      return {
+        ...JSON.parse(latest.resultJson),
+        path: relPath,
+        cached: true,
+        generatedAt: latest.generatedAt,
+        model: latest.model || undefined
+      } as FileOverview
+    }
   }
 
   runtime.status('Analyzing file…')
@@ -206,6 +220,32 @@ async function mementoFeatures(): Promise<{ name: string; searchHints: string[] 
     /* ignore */
   }
   return featureCache
+}
+
+/**
+ * When the detected feature set changes, file overviews that were generated
+ * without the new feature context must be regenerated (they are removed from
+ * the cache; the next request builds them fresh).
+ */
+export function invalidateFileOverviewsOnFeatureChange(
+  newFeatures: { name: string; searchHints: string[] }[]
+): void {
+  try {
+    const d = getDb()
+    const prev = getLatestArtifact('project-features')
+    if (!prev) {
+      // first detection: any earlier file overviews were built without feature context
+      d.prepare("DELETE FROM ai_artifacts WHERE kind = 'file-overview'").run()
+      return
+    }
+    const names = (n: { name: string }[]) => n.map((f) => f.name).sort().join(',')
+    if (names(newFeatures) === names((JSON.parse(prev.resultJson) as { features: { name: string; searchHints: string[] }[] }).features ?? [])) {
+      return
+    }
+    d.prepare("DELETE FROM ai_artifacts WHERE kind = 'file-overview'").run()
+  } catch {
+    /* ignore */
+  }
 }
 
 void getSymbols
